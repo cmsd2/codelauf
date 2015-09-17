@@ -29,11 +29,11 @@ there is a single codelauf worker at any one time and this is enforced via zooke
 in future we could use leader election to allow failover.
 
 zookeeper is used for two things:
-  long lived configuration data:
-    list of repositories that need to be indexed
-  ephemeral state of worker process:
-    when it started
-    what it's doing
+  1. long lived configuration data:
+     1. list of repositories that need to be indexed
+  2. ephemeral state of worker process:
+     1. when it started
+     2. what it's doing
 
 codelauf stores mirrored git repositories on its local filesystem,
 and also uses sqlite to track program state that should persist across application restarts,
@@ -50,6 +50,7 @@ if the elasticsearch cluster is lost, the worker will need to re-index everythin
 it is recommended that if your repository setup is anything other than trivial, that you
 create a script to drive the web api to add the repos automatically.
 
+```
 zookeeper file structure:
 /codelauf (root)
   /repositories
@@ -73,54 +74,56 @@ zookeeper file structure:
 	/{09238-24234233-3242-432981}
 	  - status: indexing_files
 	  - progress: 20%
+```
 
 web API calls:
 
+```
 /repositories index,get,patch,delete
 /workers index,get
 /search get
-
+```
 
 Worker design:
 
 start
-open sqlite db
-create top-level nodes in zookeeper under /workers
-start watch on zk repositories node
-create nodes per project as per rows in sqlite db
-begin sync tasks:
-loop over projects defined in sqlite db
-for each watched remote start sync thread
+ 1. open sqlite db
+ 2. create top-level nodes in zookeeper under /workers
+ 3. start watch on zk repositories node
+ 4. create nodes per project as per rows in sqlite db
+ 5. begin sync tasks:
+    1. loop over projects defined in sqlite db
+    2. for each watched remote start sync thread
 
 adding new project to sync:
-create entry in sqlite
-start new sync thread
+ 1. create entry in sqlite
+ 2. start new sync thread
 
 sync thread:
-find repo dir and check consistency against sqlite db:
-if dir doesn't exist, clone it
-if sqlite commit id doesn't exist in repo clear it
-git fetch all to manually sync with remote
-if local and remote branches have diverged, find latest commit that we have in common,
-  and delete from the search index all local commits since then
-now we can fast forward through the remote commits and add them to the search index,
-  updating sqlite with the processed commit id as we go
-any files that were deleted would have been removed from the index when processing commits
-spider the entire repo and add all the files to the index, replacing any existing docs in index
+ 1. find repo dir and check consistency against sqlite db:
+ 2. if dir doesn't exist, clone it
+ 3. if sqlite commit id doesn't exist in repo clear it
+ 4. git fetch all to manually sync with remote
+ 5. if local and remote branches have diverged, find latest commit that we have in common,
+    and delete from the search index all local commits since then
+ 6. now we can fast forward through the remote commits and add them to the search index,
+    updating sqlite with the processed commit id as we go
+ 7. any files that were deleted would have been removed from the index when processing commits
+ 8. spider the entire repo and add all the files to the index, replacing any existing docs in index
 
 sync thread states:
-started
-start_fail couldn't open sqlite db or find data dir? or zk?
-cloning
-clone_fail couldn't access remote repo
-fetching
-fetch_fail couldn't access remote repo
-rewinding
-rewind_fail error twiddling git or poking elasticsearch
-merging
-merge_fail error twiddling git or poking elasticsearch
-indexing
-index_fail error poking elasticsearch
-indexed
+ 1. started
+ 2. start_fail couldn't open sqlite db or find data dir? or zk?
+ 3. cloning
+ 4. clone_fail couldn't access remote repo
+ 5. fetching
+ 6. fetch_fail couldn't access remote repo
+ 7. rewinding
+ 8. rewind_fail error twiddling git or poking elasticsearch
+ 10. merging
+ 11. merge_fail error twiddling git or poking elasticsearch
+ 12. indexing
+ 13. index_fail error poking elasticsearch
+ 13. indexed
 
 
