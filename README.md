@@ -13,8 +13,10 @@ tracked remotes and branches.
 
 design:
 
+```
 ELB -> ASG[ Web Frontends ] -> ElasticSearch <- codelauf worker -> sqlite
                             -> ZooKeeper     <-
+```
 
 there can be any number of web frontends, each of which is stateless.
 
