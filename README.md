@@ -148,8 +148,8 @@ sync thread states:
 sqlite db schema:
 
 repositories table:
- 1. id uuid string
- 2. repo uri
+ 1. id uuid string (hyphen formatted, 36 chars)
+ 2. repo uri (e.g. https://github.com/me/foo.git)
  3. branch name
  4. last indexed commit id (goes backwards during rewind, forwards during merge)
  5. last indexed datetime for information only
