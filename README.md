@@ -26,7 +26,8 @@ the web frontends provide an api that can be used to query the cluster state as 
 is in zookeeper, and also to perform searches.
 
 there is a single codelauf worker at any one time and this is enforced via zookeeper.
-in future we could use leader election to allow failover.
+in future we could use leader election to allow failover, or partition the repositories
+into buckets spread across a cluster of workers.
 
 zookeeper is used for two things:
   1. long lived configuration data:
@@ -67,7 +68,7 @@ zookeeper file structure:
   /workers
     /0
       - start_time: Tuesday
-      /status
+      /repositories
         /{43223-21998392-3232-123294}
 	  - status: cloning
 	  - progress: 80%
@@ -76,13 +77,27 @@ zookeeper file structure:
 	  - progress: 20%
 ```
 
-web API calls:
+frontend web API calls:
 
 ```
 /repositories index,get,patch,delete
 /workers index,get
 /search get
 ```
+
+worker management API calls:
+note that there's no way to directly add or remove repos to a worker.
+this is done via the worker watching zk /repositories at the moment.
+this API is a bit redundant at the moment.
+in future it will be used to coordinate ownership of repos among workers,
+
+```
+/repositories index,get
+/repositories/{id}/sync post // trigger immediate fetch and sync
+/repositories/{id}/recreate post // clone fresh copy and sync
+/status get
+```
+
 
 Worker design:
 
@@ -116,14 +131,27 @@ sync thread states:
  2. start_fail couldn't open sqlite db or find data dir? or zk?
  3. cloning
  4. clone_fail couldn't access remote repo
- 5. fetching
- 6. fetch_fail couldn't access remote repo
- 7. rewinding
- 8. rewind_fail error twiddling git or poking elasticsearch
- 10. merging
- 11. merge_fail error twiddling git or poking elasticsearch
- 12. indexing
- 13. index_fail error poking elasticsearch
- 13. indexed
+ 5. cloned
+ 6. fetching
+ 7. fetch_fail couldn't access remote repo
+ 8. fetched
+ 9. rewinding
+ 10. rewind_fail error twiddling git or poking elasticsearch
+ 11. merging
+ 12. merge_fail error twiddling git or poking elasticsearch
+ 13. merged
+ 14. indexing
+ 15. index_fail error poking elasticsearch
+ 16. indexed
 
 
+sqlite db schema:
+
+repositories table:
+ 1. id uuid string
+ 2. repo uri
+ 3. branch name
+ 4. last indexed commit id (goes backwards during rewind, forwards during merge)
+ 5. last indexed datetime for information only
+ 6. sync state (see above)
+ 7. local filesystem path
