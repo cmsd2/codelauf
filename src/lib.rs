@@ -7,5 +7,7 @@ extern crate rusqlite;
 #[macro_use]
 extern crate schemamama;
 extern crate schemamama_rusqlite;
+extern crate toml;
 
 pub mod db;
+pub mod config;
