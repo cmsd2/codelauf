@@ -1,25 +1,21 @@
 use super::config::{Config,RepoLocation};
-use super::db::Db;
+use super::db::{Db,Repository};
+use super::result::*;
 use std::path::{Path,PathBuf};
 use std::fs;
 use rusqlite::SqliteError;
-
-type RepoResult<T> = Result<T, RepoError>;
-
-#[derive(Debug)]
-pub enum RepoError {
-    SqlError(SqliteError),
-    NoRemote,
-    NotCloned,
-}
+use git2;
 
 fn open_db(config: &Config) -> RepoResult<Db> {
-    let database = try!(Db::open(Path::new(&config.data_dir).join("db.sqlite").as_path()).map_err(|e| RepoError::SqlError(e)));
+    let dbpath = Path::new(&config.data_dir).join("db.sqlite");
+    info!("opening db");
+    let database = try!(Db::open(dbpath.as_path()).map_err(|e| RepoError::SqlError(e)));
     database.migrate();
     Ok(database)
 }
 
 pub fn init(config: &Config) {
+    info!("initialising");
     open_db(config);
 }
 
@@ -34,15 +30,21 @@ pub fn init(config: &Config) {
 /// 7. any files that were deleted would have been removed from the index when processing commits
 /// 8. spider the entire repo and add all the files to the index, replacing any existing docs in index
 
-
-struct Repo {
-    path: PathBuf,
-    location: RepoLocation,
+#[derive(Debug,Clone)]
+struct RepoSpec {
+    pub path: PathBuf,
+    pub location: RepoLocation,
 }
 
-impl Repo {
-    pub fn new(path: PathBuf, location: RepoLocation) -> Repo {
-        Repo {
+impl RepoSpec {
+    pub fn new_for_config(config: &Config) -> RepoResult<RepoSpec> {
+        let repo_loc = try!(config.repo_location.as_ref().ok_or(RepoError::NoRemote));
+
+        Ok(RepoSpec::new(get_repo_path(config, repo_loc), repo_loc.clone()))
+    }
+    
+    pub fn new(path: PathBuf, location: RepoLocation) -> RepoSpec {
+        RepoSpec {
             path: path,
             location: location,
         }
@@ -65,37 +67,78 @@ impl Repo {
 }
 
 fn get_repo_path(config: &Config, repo_loc: &RepoLocation) -> PathBuf {
+    //TODO: either use hash or derive dir name from repo name in uri
     Path::new(&config.data_dir).join("the_repo".to_string())
 }
 
-/// calc path to repo given data_dir and repo details
-fn get_repo(config: &Config, repo_loc: &RepoLocation) -> Repo {
-    Repo::new(get_repo_path(config, repo_loc), repo_loc.clone())
-}
-
 /// find or create repo entry in db
-fn get_repo_state(config: &Config, db: &Db, repo: &Repo) {
+fn get_repo_state(config: &Config, db: &Db, repo: &RepoSpec) -> RepoResult<Repository> {
+    let maybe_repo = try!(db.find_repo_by_remote(&repo.location));
+
+    match maybe_repo {
+        Some(existing_repo) => Ok(existing_repo),
+        None => {
+            info!("creating new db repo entry for {:?}", repo);
+            
+            let default_branch = "master".to_string();
+
+            let remote_uri = try!(repo.location.remote.as_ref().ok_or(RepoError::NoRemote));
+            let remote_branch = repo.location.branch.as_ref().unwrap_or(&default_branch);
+            let repo_path = try!(repo.path.to_str().ok_or(RepoError::PathUnicodeError));
+            
+            let new_repo = Repository::new_from_remote(remote_uri.clone(), remote_branch.clone(), repo_path.to_string());
+            try!(db.insert_repo(&new_repo));
+
+            info!("created db repo entry {:?}", new_repo);
+            
+            Ok(new_repo)
+        }
+    }
 }
 
-/// probe cloned repo
+fn probe_repo_clone(config: &Config, repo: &RepoSpec) -> RepoResult<RepoSpec> {
+    info!("probing cloned repo {:?}", repo);
+    Ok(repo.clone())
+}
+
 /// update db entry to match
 /// return resulting state
-fn update_repo_state(config: &Config, db: &Db, repo: &Repo) -> RepoResult<()> {
+fn update_repo_state(config: &Config, db: &Db, repo: &RepoSpec) -> RepoResult<()> {
+    info!("updating db repo entry to match cloned repo...");
+    
     if !repo.is_cloned() {
         return Err(RepoError::NotCloned);
     }
 
+    // get remote url and branch from clone
+    let repo = try!(probe_repo_clone(config, repo));
+
+    // find matching row in db
+    let repo_stat = try!(get_repo_state(&config, &db, &repo));
+
     Ok(())
 }
 
-fn ensure_cloned(config: &Config, db: &Db, repo: &Repo) -> RepoResult<()> {
+fn clone_repo(repo: &RepoSpec) -> RepoResult<git2::Repository> {
+    let remote_uri = try!(repo.location.remote.as_ref().ok_or(RepoError::NoRemote));
+    
+    let result = try!(git2::Repository::clone(remote_uri, repo.path.clone()));
+
+    Ok(result)
+}
+
+fn ensure_cloned(config: &Config, db: &Db, repo: &RepoSpec) -> RepoResult<()> {
+    info!("ensuring cloned {:?}", repo);
+    let git_repo = try!(clone_repo(repo));
+    
     update_repo_state(config, db, repo)
 }
 
-fn ensure_fetched(config: &Config, db: &Db, repo: &Repo) -> RepoResult<()> {
+fn ensure_fetched(config: &Config, db: &Db, repo: &RepoSpec) -> RepoResult<()> {
+    info!("ensuring fetched {:?}", repo);
     if repo.is_cloned() {
         update_repo_state(config, db, repo)
-    } else {
+    } else {        
         ensure_cloned(config, db, repo)
     }
 }
@@ -109,12 +152,10 @@ fn ensure_fetched(config: &Config, db: &Db, repo: &Repo) -> RepoResult<()> {
 ///   fetch branch
 ///   checkout branch
 /// update db as we go
-pub fn fetch_repo(config: &Config) -> Result<(), RepoError> {
+pub fn fetch_repo(config: &Config) -> RepoResult<()> {    
     let db = try!(open_db(config));
-    let repo_loc = try!(config.repo_location.as_ref().ok_or(RepoError::NoRemote));
     
-    let repo = get_repo(&config, &repo_loc);
-    let repo_stat = get_repo_state(&config, &db, &repo);
+    let repo = try!(RepoSpec::new_for_config(&config));
 
     ensure_fetched(&config, &db, &repo)
 }

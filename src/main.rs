@@ -2,11 +2,14 @@
 extern crate log;
 extern crate clap;
 extern crate codelauf;
+extern crate env_logger;
 
 use codelauf::config;
 use codelauf::commands;
 
 fn main() {
+    env_logger::init().unwrap();
+    
     let matches = config::parse_args();
 
     let config = config::get_config(&matches).unwrap();
@@ -21,7 +24,7 @@ fn main() {
         },
         Some("fetch") => {
             commands::fetch_repo(&config).map_err(|e| {
-                println!("error fetching repo: {:?}", e)
+                error!("error fetching repo: {:?}", e)
             });
         },
         Some("sync") => {

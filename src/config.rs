@@ -81,9 +81,9 @@ impl SyncConfig {
 
 #[derive(Debug,Clone)]
 pub struct RepoLocation {
-    remote: Option<String>,
-    branch: Option<String>,
-    dir: Option<String>,
+    pub remote: Option<String>,
+    pub branch: Option<String>,
+    pub dir: Option<String>,
 }
 
 impl RepoLocation {
@@ -172,7 +172,7 @@ pub fn get_env(name: &str) -> Option<String> {
     match env::var(name) {
         Ok(val) => Some(val),
         Err(e) => {
-            warn!("error getting environment variable {}: {:?}", name, e);
+            info!("not using environment variable {}: {:?}", name, e);
             None
         }
     }
