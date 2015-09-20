@@ -2,6 +2,8 @@ Codelauf is a source code search system
 
 [![Build Status](https://travis-ci.org/cmsd2/codelauf.svg)](https://travis-ci.org/cmsd2/codelauf)
 
+[Documentation](https://cmsd2.github.io/rust-docs/codelauf)
+
 It is a work-in-progress.
 This design document describes how it will be architected.
 
