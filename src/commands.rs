@@ -41,6 +41,10 @@ fn ensure_cloned(_config: &Config, db: &Db, repo: &mut Repo) -> RepoResult<()> {
 fn ensure_fetched(config: &Config, db: &Db, repo: &mut Repo) -> RepoResult<()> {
     info!("ensuring fetched {:?}", repo);
     if repo.is_cloned() {
+        try!(repo.open_repo());
+        
+        try!(repo.pull_repo());
+        
         repo.update_repo_in_db(db)
     } else {        
         ensure_cloned(config, db, repo)

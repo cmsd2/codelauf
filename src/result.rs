@@ -8,14 +8,16 @@ pub type RepoResult<T> = Result<T, RepoError>;
 
 #[derive(Debug)]
 pub enum RepoError {
-    InvalidArgs,
+    InvalidArgs(String),
     EnumParseError(String),
     DbError(db::DbError),
     SqlError(SqliteError),
     NoRemote,
     NotCloned,
     PathUnicodeError,
+    StringUnicodeError,
     GitError(git2::Error),
+    InvalidState(String),
 }
 
 impl From<SqliteError> for RepoError {

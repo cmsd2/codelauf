@@ -1,6 +1,9 @@
+use std::rc::Rc;
 use std::path::{PathBuf,Path};
+use std::str;
 use std::str::FromStr;
 use std::fs;
+use std::fmt;
 use git2;
 use super::config::{Config,RepoLocation};
 use super::result::*;
@@ -35,12 +38,19 @@ impl ToString for SyncState {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Clone)]
 pub struct Repo {
     pub path: PathBuf,
     pub uri: String,
     pub branch: String,
     pub sync_state: SyncState,
+    pub git_repo: Option<Rc<git2::Repository>>,
+}
+
+impl fmt::Debug for Repo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Repo ({:?}, {}, {}, {:?})", self.path, self.uri, self.branch, self.sync_state)
+    }
 }
 
 impl Repo {
@@ -59,7 +69,30 @@ impl Repo {
             uri: uri,
             branch: branch.unwrap_or("master".to_string()),
             sync_state: sync_state,
+            git_repo: None,
         }
+    }
+
+    fn new_git_callbacks<'a>() -> git2::RemoteCallbacks<'a> {
+        let mut grcs = git2::RemoteCallbacks::<'a>::new();
+
+        grcs
+            .transfer_progress(|prog| {
+                info!("total: {} received: {} indexed: {}",
+                      prog.total_objects(),
+                      prog.received_objects(),
+                      prog.indexed_objects());
+                true
+            })
+            .sideband_progress(|data| {
+                match str::from_utf8(data) {
+                    Ok(v) => println!("{}", v),
+                    Err(e) => println!("not utf8 data: {:?}", e)
+                };
+                true
+            });
+
+        grcs
     }
 
     pub fn is_cloned(&self) -> bool {
@@ -150,12 +183,73 @@ impl Repo {
         }
     }
 
-    pub fn clone_repo(&mut self) -> RepoResult<git2::Repository> {
-        let result = try!(git2::Repository::clone(&self.uri, self.path.clone()));
+    pub fn clone_repo(&mut self) -> RepoResult<()> {
+        self.git_repo = Some(Rc::new(try!(git2::Repository::clone(&self.uri, self.path.clone()))));
 
         self.sync_state = SyncState::Cloned;
 
-        Ok(result)
+        Ok(())
+    }
+
+    pub fn open_repo(&mut self) -> RepoResult<()> {
+        self.git_repo = Some(Rc::new(try!(git2::Repository::open(self.path.clone()))));
+
+        Ok(())
+    }
+
+    fn find_or_create_git_remote<'a> (&'a self, repo: &'a git2::Repository) -> RepoResult<git2::Remote> {
+        // TODO: ensure returned remote has correct uri
+        repo.find_remote("origin").map_err(|e| RepoError::GitError(e))
+    }
+
+    pub fn fetch_repo(&mut self) -> RepoResult<()> {
+        let git_repo = try!(self.git_repo());
+
+        let mut fo = git2::FetchOptions::new();
+        let grcs = Repo::new_git_callbacks();
+        
+        fo.prune(git2::FetchPrune::On);
+        fo.remote_callbacks(grcs);
+
+        let mut remote = try!(self.find_or_create_git_remote(&git_repo));
+
+        info!("fetching from remote");
+        try!(remote.fetch(&[&self.branch], Some(&mut fo), None));
+
+        Ok(())
+    }
+
+    pub fn checkout_head(&mut self) -> RepoResult<()> {
+        let git_repo = try!(self.git_repo());
+
+        let branch = try!(git_repo.find_branch(&self.branch, git2::BranchType::Local));
+        let branch_fullname = try!(branch.get().name().ok_or(RepoError::StringUnicodeError));
+
+        info!("branch full name {}", branch_fullname);
+        try!(git_repo.set_head(branch_fullname));
+        
+        let mut cb = git2::build::CheckoutBuilder::new();
+        cb.force();
+
+        info!("checkout {}", self.branch);
+        git_repo.checkout_head(Some(&mut cb)).map_err(|e| RepoError::GitError(e));
+
+        Ok(())
+    }
+
+    pub fn pull_repo(&mut self) -> RepoResult<()> {
+        try!(self.fetch_repo());
+
+        try!(self.checkout_head());
+
+        Ok(())
+    }
+
+    pub fn git_repo(&self) -> RepoResult<Rc<git2::Repository>> {
+        match self.git_repo.as_ref() {
+            Some(gr) => Ok(gr.clone()),
+            None => Err(RepoError::InvalidState("git repo not opened".to_string())),
+        }
     }
     
     pub fn set_state(&mut self, new_state: SyncState) {

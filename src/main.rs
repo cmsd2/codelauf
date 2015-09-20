@@ -35,7 +35,7 @@ fn run() -> RepoResult<()> {
         },
         _ => {
             println!("{}", args.usage());
-            Err(RepoError::InvalidArgs)
+            Err(RepoError::InvalidArgs("unrecognised command".to_string()))
         }
     }
 }
