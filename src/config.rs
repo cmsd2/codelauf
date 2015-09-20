@@ -1,7 +1,5 @@
 use std::env;
-use std::path::Path;
-use clap::{Arg, App, SubCommand, ArgMatches};
-use super::db;
+use clap::{App, SubCommand, ArgMatches};
 use toml::{Table, Parser};
 use std::io::{Read,Result,Error,ErrorKind};
 use std::fs::File;
@@ -9,11 +7,12 @@ use std::fs::File;
 
 #[derive(Debug,Clone)]
 pub struct Config {
-    data_dir: String, // where to create database and repo clones
-    zookeeper: Option<String>, // e.g. localhost:2181/codelauf
-    elasticsearch: Option<String>, // e.g. localhost:9200
-    index_config: IndexConfig,
-    sync_config: SyncConfig,
+    pub data_dir: String, // where to create database and repo clones
+    pub zookeeper: Option<String>, // e.g. localhost:2181/codelauf
+    pub elasticsearch: Option<String>, // e.g. localhost:9200
+    pub index_config: IndexConfig,
+    pub sync_config: SyncConfig,
+    pub repo_location: Option<RepoLocation>,
 }
 
 impl Config {
@@ -24,6 +23,7 @@ impl Config {
             elasticsearch: None,
             index_config: IndexConfig::new(),
             sync_config: SyncConfig::new(),
+            repo_location: None,
         }
     }
     
@@ -52,23 +52,15 @@ impl Config {
 }
 
 #[derive(Debug,Clone)]
-pub struct IndexConfig {
-    remote: Option<String>,
-    branch: Option<String>,
-    dir: Option<String>,
-}
+pub struct IndexConfig;
 
 impl IndexConfig {
     pub fn new() -> IndexConfig {
-        IndexConfig {
-            remote: None,
-            branch: None,
-            dir: None,
-        }
+        IndexConfig
     }
     
-    pub fn new_from_table(table: &Table) -> IndexConfig {
-        let mut cfg = Self::new();
+    pub fn new_from_table(_table: &Table) -> IndexConfig {
+        let cfg = Self::new();
         cfg
     }
 }
@@ -80,10 +72,46 @@ impl SyncConfig {
     pub fn new() -> SyncConfig {
         SyncConfig
     }
-    
-    pub fn new_from_table(table: &Table) -> SyncConfig {
-        let mut cfg = Self::new();
+
+    pub fn new_from_table(_table: &Table) -> SyncConfig {
+        let cfg = Self::new();
         cfg
+    }
+}
+
+#[derive(Debug,Clone)]
+pub struct RepoLocation {
+    remote: Option<String>,
+    branch: Option<String>,
+    dir: Option<String>,
+}
+
+impl RepoLocation {
+    pub fn new() -> RepoLocation {
+        RepoLocation {
+            remote: None,
+            branch: None,
+            dir: None,
+        }
+    }
+
+    pub fn new_from_args<'a,'b>(args: &ArgMatches<'a,'b>) -> Option<RepoLocation> {
+        if args.is_present("REMOTE") || args.is_present("REPO_DIR") {
+            let mut repo_loc = RepoLocation::new();
+            
+            repo_loc.remote = get_config_str(args, "REMOTE")
+                .or(repo_loc.remote);
+            
+            repo_loc.branch = get_config_str(args, "BRANCH")
+                .or(repo_loc.branch);
+            
+            repo_loc.dir = get_config_str(args, "REPO_DIR")
+                .or(repo_loc.dir);
+            
+            Some(repo_loc)
+        } else {
+            None
+        }
     }
 }
 
@@ -103,6 +131,13 @@ pub fn parse_args<'a,'b>() -> ArgMatches<'a,'b> {
                     )
         .subcommand(SubCommand::with_name("index")
                     .about("indexes a single repository and exits")
+                    .args_from_usage(
+                        "-r --remote=[REMOTE] 'Repository remote url (required if not already cloned)'
+                        -b --branch=[BRANCH] 'Branch (default master)'
+                        -R --repo-dir=[REPO_DIR] 'Repo dir to use for repo (clones if it does not exist)'")
+                    )
+        .subcommand(SubCommand::with_name("fetch")
+                    .about("clones or fetches a repository and exits")
                     .args_from_usage(
                         "-r --remote=[REMOTE] 'Repository remote url (required if not already cloned)'
                         -b --branch=[BRANCH] 'Branch (default master)'
@@ -157,16 +192,12 @@ pub fn apply_config<'a,'b>(cfg: Config, args: &ArgMatches<'a,'b>) -> Config {
 
     match args.subcommand() {
         ("index", Some(indexargs)) => {
-            cfg.index_config.remote = get_config_str(indexargs, "REMOTE")
-                .or(cfg.index_config.remote);
-
-            cfg.index_config.branch = get_config_str(indexargs, "BRANCH")
-                .or(cfg.index_config.branch);
-
-            cfg.index_config.dir = get_config_str(indexargs, "REPO_DIR")
-                .or(cfg.index_config.dir);
+            cfg.repo_location = RepoLocation::new_from_args(&indexargs);
         },
-        ("sync", Some(syncargs)) => {
+        ("fetch", Some(fetchargs)) => {
+            cfg.repo_location = RepoLocation::new_from_args(&fetchargs);
+        },
+        ("sync", Some(_syncargs)) => {
         },
         _ => {}
     }
@@ -186,7 +217,7 @@ pub fn get_config_str_env<'a,'b>(args: &ArgMatches<'a,'b>, key: &str, env_key: &
 }
 
 pub fn get_config<'a,'b>(args: &ArgMatches<'a,'b>) -> Result<Config> {
-    let mut maybe_config = read_config(get_config_str(args, "CONFIG"));
+    let maybe_config = read_config(get_config_str(args, "CONFIG"));
 
     maybe_config.map_err(|err| {
         error!("error reading config file: {:?}", err);

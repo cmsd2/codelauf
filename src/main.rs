@@ -4,31 +4,26 @@ extern crate clap;
 extern crate codelauf;
 
 use codelauf::config;
-use std::path::Path;
-use clap::{Arg, App, SubCommand, ArgMatches};
-use codelauf::db;
-use std::io::{Read,Result,Error,ErrorKind};
-use std::fs::File;
-
-fn create_db() -> db::Db {
-    let database = db::Db::open(Path::new("db.sqlite")).unwrap();
-    database.migrate();
-    database
-}
+use codelauf::commands;
 
 fn main() {
     let matches = config::parse_args();
 
-    let config = config::get_config(&matches);
+    let config = config::get_config(&matches).unwrap();
     println!("using config:\n {:?}", config);
 
     match matches.subcommand_name() {
         Some("init") => {
-            create_db();
+            commands::init(&config);
         },
         Some("index") => {
+            commands::index_repo(&config);
+        },
+        Some("fetch") => {
+            commands::fetch_repo(&config);
         },
         Some("sync") => {
+            commands::run_sync(&config);
         },
         _ => {
             println!("{}", matches.usage());

@@ -11,3 +11,4 @@ extern crate toml;
 
 pub mod db;
 pub mod config;
+pub mod commands;

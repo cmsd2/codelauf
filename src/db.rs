@@ -1,8 +1,6 @@
-use std::io;
 use std::path::Path;
-use log;
 use rusqlite::{SqliteConnection,SqliteResult};
-use schemamama::{Migration,Migrator};
+use schemamama::{Migrator};
 use schemamama_rusqlite::{SqliteAdapter,SqliteMigration};
 
 struct CreateRepositoriesTable;
