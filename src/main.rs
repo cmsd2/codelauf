@@ -20,7 +20,9 @@ fn main() {
             commands::index_repo(&config);
         },
         Some("fetch") => {
-            commands::fetch_repo(&config);
+            commands::fetch_repo(&config).map_err(|e| {
+                println!("error fetching repo: {:?}", e)
+            });
         },
         Some("sync") => {
             commands::run_sync(&config);
