@@ -18,3 +18,8 @@ rs-es = "0.1.17"
 
 [features]
 unstable = []
+
+[[bin]]
+doc = false
+name = "codelauf"
+path = "src/main.rs"
