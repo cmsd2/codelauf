@@ -1,12 +1,12 @@
 use std::path::Path;
-use rusqlite::{SqliteConnection,SqliteResult,SqliteError,SqliteRow};
+use rusqlite::{SqliteConnection,SqliteResult,SqliteRow};
 use schemamama::{Migrator};
 use schemamama_rusqlite::{SqliteAdapter,SqliteMigration};
 use std::str::FromStr;
 use time;
 use time::Timespec;
 use super::result::*;
-use super::config::RepoLocation;
+use super::repo::SyncState;
 use uuid::Uuid;
 
 #[derive(Debug,Clone)]
@@ -14,40 +14,17 @@ pub enum DbError {
     EnumParseError(String)
 }
 
-#[derive(Debug,Copy,Clone)]
-pub enum SyncState {
-    NotCloned,
-}
-
-impl FromStr for SyncState {
-    type Err = DbError;
-    fn from_str(s: &str) -> Result<SyncState, Self::Err> {
-        match s {
-            "NotCloned" => Ok(SyncState::NotCloned),
-            _ => Err(DbError::EnumParseError(s.to_string()))
-        }
-    }
-}
-
-impl ToString for SyncState {
-    fn to_string(&self) -> String {
-        match self {
-            NotCloned => "NotCloned".to_string(),
-        }
-    }
-}
-
 #[derive(Debug,Clone)]
 pub struct Repository {
-    id: String,
-    uri: String,
-    branch: String,
-    path: String,
-    sync_state: SyncState,
-    added_datetime: Option<Timespec>,
-    fetched_datetime: Option<Timespec>,
-    indexed_commit: Option<String>,
-    indexed_datetime: Option<Timespec>,
+    pub id: String,
+    pub uri: String,
+    pub branch: String,
+    pub path: String,
+    pub sync_state: SyncState,
+    pub added_datetime: Option<Timespec>,
+    pub fetched_datetime: Option<Timespec>,
+    pub indexed_commit: Option<String>,
+    pub indexed_datetime: Option<Timespec>,
 }
 
 impl Repository {
@@ -146,11 +123,7 @@ impl Db {
         assert_eq!(migrator.current_version(), Some(1));
     }
 
-    pub fn find_repo_by_remote(&self, repo_loc: &RepoLocation) -> RepoResult<Option<Repository>> {
-        let default_branch = "master".to_string();
-        let remote = try!(repo_loc.remote.as_ref().ok_or(RepoError::NoRemote));
-        let branch = repo_loc.branch.as_ref().unwrap_or(&default_branch);
-        
+    pub fn find_repo_by_remote(&self, remote: &String, branch: &String) -> RepoResult<Option<Repository>> {
         let mut stmt = try!(self.conn.prepare("SELECT * FROM repositories WHERE uri = ? AND branch = ?").map_err(|e| RepoError::SqlError(e)));
         let mut rows = try!(stmt.query(&[remote, branch]));
 
@@ -170,6 +143,23 @@ impl Db {
         let row0 = try!(rows.next().unwrap());
 
         Repository::new_from_sql_row(&row0).map(|r| Some(r))
+    }
+
+    pub fn update_repo(&self, repo: &Repository) -> RepoResult<()> {
+        let mut stmt = try!(self.conn.prepare("UPDATE repositories SET \
+                                               path=?, sync_state=?, \
+                                               fetched_datetime=?, \
+                                               indexed_commit=?, \
+                                               indexed_datetime=? \
+                                               WHERE id=?").map_err(|e| RepoError::SqlError(e)));
+        try!(stmt.execute(&[
+            &repo.path,
+            &repo.sync_state.to_string(),
+            &repo.fetched_datetime,
+            &repo.indexed_commit,
+            &repo.indexed_datetime,
+            &repo.id]));
+        Ok(())
     }
 
     pub fn insert_repo(&self, repo: &Repository) -> RepoResult<()> {

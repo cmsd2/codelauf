@@ -8,6 +8,8 @@ pub type RepoResult<T> = Result<T, RepoError>;
 
 #[derive(Debug)]
 pub enum RepoError {
+    InvalidArgs,
+    EnumParseError(String),
     DbError(db::DbError),
     SqlError(SqliteError),
     NoRemote,
