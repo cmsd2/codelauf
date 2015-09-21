@@ -45,6 +45,7 @@ pub struct Repo {
     pub branch: String,
     pub sync_state: SyncState,
     pub git_repo: Option<Rc<git2::Repository>>,
+    pub commit: Option<String>,
 }
 
 impl fmt::Debug for Repo {
@@ -70,6 +71,7 @@ impl Repo {
             branch: branch.unwrap_or("master".to_string()),
             sync_state: sync_state,
             git_repo: None,
+            commit: None,
         }
     }
 
@@ -149,6 +151,10 @@ impl Repo {
 
         let mut db_repo = try!(self.find_or_create_in_db(db));
 
+        if self.commit.is_none() {
+            self.commit = db_repo.indexed_commit.clone();
+        }
+        
         match db_repo.sync_state {
             SyncState::NotCloned => {
                 db_repo.sync_state = self.sync_state;
@@ -232,7 +238,7 @@ impl Repo {
         cb.force();
 
         info!("checkout {}", self.branch);
-        git_repo.checkout_head(Some(&mut cb)).map_err(|e| RepoError::GitError(e));
+        try!(git_repo.checkout_head(Some(&mut cb)).map_err(|e| RepoError::GitError(e)));
 
         Ok(())
     }
@@ -242,6 +248,30 @@ impl Repo {
 
         try!(self.checkout_head());
 
+        Ok(())
+    }
+
+    pub fn revwalk(&mut self) -> RepoResult<()> {
+        let git_repo = try!(self.git_repo());
+
+        let mut revwalk = try!(git_repo.revwalk());
+
+        try!(revwalk.push_head());
+
+        if self.commit.is_some() {
+            let old_head = try!(git_repo.revparse_single(self.commit.as_ref().unwrap())).id();
+            let current_head = try!(git_repo.head()).target().unwrap();
+            
+            let base = try!(git_repo.merge_base(old_head, current_head));
+            
+            try!(revwalk.hide(base));
+        }
+
+        info!("commit history:");
+        for oid in revwalk {
+            info!("{:?}", oid);
+        }
+        
         Ok(())
     }
 

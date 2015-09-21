@@ -44,6 +44,8 @@ fn ensure_fetched(config: &Config, db: &Db, repo: &mut Repo) -> RepoResult<()> {
         try!(repo.open_repo());
         
         try!(repo.pull_repo());
+
+        try!(repo.revwalk());
         
         repo.update_repo_in_db(db)
     } else {        
