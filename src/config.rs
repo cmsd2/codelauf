@@ -3,7 +3,7 @@ use clap::{App, SubCommand, ArgMatches};
 use toml::{Table, Parser};
 use std::io::{Read,Result,Error,ErrorKind};
 use std::fs::File;
-
+use super::result::*;
 
 #[derive(Debug,Clone)]
 pub struct Config {
@@ -93,6 +93,15 @@ impl RepoLocation {
             branch: None,
             dir: None,
         }
+    }
+
+    pub fn get_remote<'a>(&'a self) -> RepoResult<&'a str> {
+        self.remote.as_ref().map(|s| s as &str).ok_or(RepoError::NoRemote)
+    }
+
+    pub fn get_branch_or_default<'a>(&'a self) -> &'a str {
+        static DEFAULT_BRANCH: &'static str = "master";
+        self.branch.as_ref().map(|s| s as &str).unwrap_or(DEFAULT_BRANCH)
     }
 
     pub fn new_from_args<'a,'b>(args: &ArgMatches<'a,'b>) -> Option<RepoLocation> {

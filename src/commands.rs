@@ -34,6 +34,8 @@ pub fn init(config: &Config) -> RepoResult<()> {
 fn ensure_cloned(_config: &Config, db: &Db, repo: &mut Repo) -> RepoResult<()> {
     info!("ensuring cloned {:?}", repo);
     let _git_repo = try!(repo.clone_repo());
+
+    try!(repo.revwalk());
     
     repo.update_repo_in_db(db)
 }

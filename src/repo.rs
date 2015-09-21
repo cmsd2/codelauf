@@ -5,6 +5,7 @@ use std::str::FromStr;
 use std::fs;
 use std::fmt;
 use git2;
+use sha1::Sha1;
 use super::config::{Config,RepoLocation};
 use super::result::*;
 use super::db;
@@ -40,6 +41,7 @@ impl ToString for SyncState {
 
 #[derive(Clone)]
 pub struct Repo {
+    pub id: String,
     pub path: PathBuf,
     pub uri: String,
     pub branch: String,
@@ -61,14 +63,16 @@ impl Repo {
         let uri = try!(repo_loc.remote.as_ref().ok_or(RepoError::NoRemote));
         let branch = repo_loc.branch.clone();
 
-        Ok(Repo::new(Repo::get_repo_path(config, repo_loc), uri.clone(), branch, SyncState::NotCloned))
+        Ok(Repo::new(try!(Repo::get_repo_path(config, repo_loc)), uri.clone(), branch, SyncState::NotCloned))
     }
     
     pub fn new(path: PathBuf, uri: String, branch: Option<String>, sync_state: SyncState) -> Repo {
+        let branch = branch.unwrap_or("master".to_string());
         Repo {
+            id: Repo::id(&uri, &branch),
             path: path,
             uri: uri,
-            branch: branch.unwrap_or("master".to_string()),
+            branch: branch,
             sync_state: sync_state,
             git_repo: None,
             commit: None,
@@ -136,7 +140,7 @@ impl Repo {
                 let remote_branch = &self.branch;
                 let repo_path = try!(self.path.to_str().ok_or(RepoError::PathUnicodeError));
                 
-                let new_repo = db::Repository::new_from_remote(remote_uri.clone(), remote_branch.clone(), repo_path.to_string());
+                let new_repo = db::Repository::new_from_remote(self.id.clone(), remote_uri.clone(), remote_branch.clone(), repo_path.to_string());
                 try!(db.insert_repo(&new_repo));
                 
                 info!("created db repo entry {:?}", new_repo);
@@ -309,10 +313,18 @@ impl Repo {
         self.sync_state = new_state;
     }
 
-    fn get_repo_path(config: &Config, _repo_loc: &RepoLocation) -> PathBuf {
-        //TODO: either use hash or derive dir name from repo name in uri
-        Path::new(&config.data_dir).join("the_repo".to_string())
+    pub fn get_repo_path(config: &Config, repo_loc: &RepoLocation) -> RepoResult<PathBuf> {
+        let id = Repo::id(try!(repo_loc.get_remote()), repo_loc.get_branch_or_default());
+        Ok(Path::new(&config.data_dir).join("repos").join(id))
     }
+
+    pub fn id(remote: &str, branch: &str) -> String {
+        let mut h = Sha1::new();
+        h.update(remote.as_bytes());
+        h.update(branch.as_bytes());
+        h.hexdigest()
+    }
+        
 }
 
 

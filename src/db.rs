@@ -7,7 +7,6 @@ use time;
 use time::Timespec;
 use super::result::*;
 use super::repo::SyncState;
-use uuid::Uuid;
 
 #[derive(Debug,Clone)]
 pub enum DbError {
@@ -28,9 +27,9 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub fn new_from_remote(uri: String, branch: String, path: String) -> Repository {
+    pub fn new_from_remote(id: String, uri: String, branch: String, path: String) -> Repository {
         Repository {
-            id: Uuid::new_v4().to_string(),
+            id: id,
             uri: uri,
             branch: branch,
             path: path,

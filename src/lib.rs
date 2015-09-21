@@ -10,6 +10,7 @@ extern crate schemamama_rusqlite;
 extern crate toml;
 extern crate time;
 extern crate uuid;
+extern crate sha1;
 
 pub mod db;
 pub mod config;
