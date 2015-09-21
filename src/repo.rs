@@ -243,14 +243,36 @@ impl Repo {
         Ok(())
     }
 
+    /// like git update-ref refs/heads/master refs/remotes/origin/master
+    pub fn repoint_head_to_origin(&mut self) -> RepoResult<()> {
+        let git_repo = try!(self.git_repo());
+        
+        let remote = try!(self.find_or_create_git_remote(&git_repo));
+
+        let remote_name = remote.name().unwrap();
+        let branch_name = &self.branch;
+        let remote_ref = format!("refs/remotes/{}/{}", remote_name, branch_name);
+        let local_ref = format!("refs/heads/{}", branch_name);
+        let local_oid = try!(git_repo.refname_to_id(&local_ref));
+        let remote_oid = try!(git_repo.refname_to_id(&remote_ref));
+
+        let reflog_msg = format!("update-ref: moving {} from {} to {}", local_ref, local_oid, remote_oid);
+        try!(git_repo.reference(&local_ref, remote_oid, true, &reflog_msg));
+
+        Ok(())
+    }
+
     pub fn pull_repo(&mut self) -> RepoResult<()> {
         try!(self.fetch_repo());
 
+        try!(self.repoint_head_to_origin());
+        
         try!(self.checkout_head());
 
         Ok(())
     }
 
+    /// walks commits from current head to merge-base of self.commit if any
     pub fn revwalk(&mut self) -> RepoResult<()> {
         let git_repo = try!(self.git_repo());
 
