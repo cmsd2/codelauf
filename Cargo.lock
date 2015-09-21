@@ -10,6 +10,7 @@ dependencies = [
  "rusqlite 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemamama 0.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemamama_rusqlite 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sha1 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "toml 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)",
  "uuid 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -385,6 +386,14 @@ dependencies = [
  "log 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rusqlite 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemamama 0.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "sha1"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "byteorder 0.3.13 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
