@@ -123,12 +123,24 @@ sync thread:
  2. if dir doesn't exist, clone it
  3. if sqlite commit id doesn't exist in repo clear it
  4. git fetch all to manually sync with remote
- 5. if local and remote branches have diverged, find latest commit that we have in common,
-    and delete from the search index all local commits since then
- 6. now we can fast forward through the remote commits and add them to the search index,
-    updating sqlite with the processed commit id as we go
- 7. any files that were deleted would have been removed from the index when processing commits
- 8. spider the entire repo and add all the files to the index, replacing any existing docs in index
+ 5. if local and remote branches have diverged, use revwalk to find all the commits back
+    to the merge base(s).
+ 6. add all commits found to commits work table in sqlite
+    crash recovery: ignore duplicate row errors
+ 7. scroll through commits work table and add each commit to elastic search
+    mark row in work table as done
+    periodically commit elasticsearch batch as we go
+    all updates to search index are idempotent
+    remove from search index any files deleted or renamed by a commit
+    add to repo_files table any files that are added or updated
+    if they're already in there then update the change commit id if newer
+    no special logic needed for crash recovery here
+ 8. when all rows done, save head commit id as indexed commit id in repos table
+    and clear work table.
+    crash recovery: update and work table row deletion in same transaction
+ 9. for each file in repo_files table, add to search index
+    update repo_files indexed commit id as we go if change commit id is newer than indexed commit id
+    crash recovery: it's monotonic. no special logic needed.
 
 sync thread states:
  1. started
@@ -139,14 +151,12 @@ sync thread states:
  6. fetching
  7. fetch_fail couldn't access remote repo
  8. fetched
- 9. rewinding
- 10. rewind_fail error twiddling git or poking elasticsearch
- 11. merging
- 12. merge_fail error twiddling git or poking elasticsearch
- 13. merged
- 14. indexing
- 15. index_fail error poking elasticsearch
- 16. indexed
+ 11. indexing_commits
+ 12. index_commits_fail error twiddling git or poking elasticsearch or sqlite
+ 13. indexed_commits
+ 14. indexing_files
+ 15. index_files_fail error poking elasticsearch or sqlite or git
+ 16. indexed_files
 
 
 sqlite db schema:
@@ -159,3 +169,17 @@ repositories table:
  5. last indexed datetime for information only
  6. sync state (see above)
  7. local filesystem path
+unique indexes on id and (repo,branch)
+
+commits work table:
+ 1. id git oid of commit 20 char ascii
+ 2. repo_id uuid string of repo
+ 3. state enum indexed or not_indexed
+unique index on (repo_id, id)
+
+repo_files table:
+ 1. repo_id uuid string of repo
+ 2. path relative path in repo of file
+ 3. commit_id id of commit when last changed
+ 4. indexed_commit_id id of commit when last indexed
+unique index on (repo_id, path)
