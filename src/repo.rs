@@ -288,9 +288,11 @@ impl Repo {
             let old_head = try!(git_repo.revparse_single(self.commit.as_ref().unwrap())).id();
             let current_head = try!(git_repo.head()).target().unwrap();
             
-            let base = try!(git_repo.merge_base(old_head, current_head));
-            
-            try!(revwalk.hide(base));
+            let bases = try!(git_repo.merge_bases(old_head, current_head));
+
+            for base in bases.iter() {
+                try!(revwalk.hide(*base));
+            }
         }
 
         info!("commit history:");
