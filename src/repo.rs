@@ -123,7 +123,7 @@ impl Repo {
     }
 
     pub fn find_in_db(&self, db: &db::Db) -> RepoResult<Option<db::Repository>> {
-        db.find_repo_by_remote(&self.uri, &self.branch)
+        db.find_repo_by_remote(&self.uri)
     }
     
     pub fn find_or_create_in_db(&mut self, db: &db::Db) -> RepoResult<db::Repository> {
@@ -138,12 +138,16 @@ impl Repo {
                 
                 let remote_uri = &self.uri;
                 let remote_branch = &self.branch;
-                let repo_path = try!(self.path.to_str().ok_or(RepoError::PathUnicodeError));
                 
-                let new_repo = db::Repository::new_from_remote(self.id.clone(), remote_uri.clone(), remote_branch.clone(), repo_path.to_string());
+                let new_repo = db::Repository::new_from_remote(self.id.clone(), remote_uri.clone(), self.path.clone());
                 try!(db.insert_repo(&new_repo));
-                
+
                 info!("created db repo entry {:?}", new_repo);
+                
+                let new_branch = db::RepoBranch::new(new_repo.id.clone(), remote_branch.clone(), None);
+                try!(db.insert_branch(&new_branch));
+                
+                info!("created db repo branch entry {:?}", new_branch);
                 
                 Ok(new_repo)
             }
@@ -155,10 +159,6 @@ impl Repo {
 
         let mut db_repo = try!(self.find_or_create_in_db(db));
 
-        if self.commit.is_none() {
-            self.commit = db_repo.indexed_commit.clone();
-        }
-        
         match db_repo.sync_state {
             SyncState::NotCloned => {
                 db_repo.sync_state = self.sync_state;
