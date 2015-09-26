@@ -82,7 +82,7 @@ impl SyncConfig {
 #[derive(Debug,Clone)]
 pub struct RepoLocation {
     pub remote: Option<String>,
-    pub branch: Option<String>,
+    pub branches: Vec<String>,
     pub dir: Option<String>,
 }
 
@@ -90,7 +90,7 @@ impl RepoLocation {
     pub fn new() -> RepoLocation {
         RepoLocation {
             remote: None,
-            branch: None,
+            branches: vec![],
             dir: None,
         }
     }
@@ -99,20 +99,23 @@ impl RepoLocation {
         self.remote.as_ref().map(|s| s as &str).ok_or(RepoError::NoRemote)
     }
 
-    pub fn get_branch_or_default<'a>(&'a self) -> &'a str {
-        static DEFAULT_BRANCH: &'static str = "master";
-        self.branch.as_ref().map(|s| s as &str).unwrap_or(DEFAULT_BRANCH)
-    }
-
     pub fn new_from_args<'a,'b>(args: &ArgMatches<'a,'b>) -> Option<RepoLocation> {
         if args.is_present("REMOTE") || args.is_present("REPO_DIR") {
             let mut repo_loc = RepoLocation::new();
             
             repo_loc.remote = get_config_str(args, "REMOTE")
                 .or(repo_loc.remote);
-            
-            repo_loc.branch = get_config_str(args, "BRANCH")
-                .or(repo_loc.branch);
+
+            match args.values_of("BRANCH") {
+                Some(branches) => {
+                    for branch in branches {
+                        repo_loc.branches.push(branch.to_string());
+                    }
+                },
+                None => {
+                    repo_loc.branches.push("master".to_string());
+                }
+            }
             
             repo_loc.dir = get_config_str(args, "REPO_DIR")
                 .or(repo_loc.dir);
