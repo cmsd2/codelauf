@@ -7,6 +7,7 @@ Codelauf is a source code search system
 It is a work-in-progress.
 This design document describes how it will be architected.
 
+# Codelauf
 
 Codelauf mirrors git repositories and uses elasticsearch to index files and commits on tracked branches.
 
@@ -15,7 +16,7 @@ Code is passed through some language specific syntax analysers before being load
 You can search the indexes given a commit id or a string that appears in the codebase on one of the
 tracked remotes and branches.
 
-design:
+## Design
 
 ```
 ELB -> ASG[ Web Frontends ] -> ElasticSearch <- codelauf worker -> sqlite
@@ -56,8 +57,9 @@ if the elasticsearch cluster is lost, the worker will need to re-index everythin
 it is recommended that if your repository setup is anything other than trivial, that you
 create a script to drive the web api to add the repos automatically.
 
+## Zookeeper file structure
+
 ```
-zookeeper file structure:
 /codelauf (root)
   /repositories
     /{43223-21998392-3232-123294}
@@ -84,7 +86,7 @@ zookeeper file structure:
 	  - progress: 20%
 ```
 
-frontend web API calls:
+## Frontend web API calls
 
 ```
 /repositories index,get,patch,delete
@@ -92,7 +94,8 @@ frontend web API calls:
 /search get
 ```
 
-worker management API calls:
+## Worker management API calls
+
 note that there's no way to directly add or remove repos to a worker.
 this is done via the worker watching zk /repositories at the moment.
 this API is a bit redundant at the moment.
@@ -106,9 +109,10 @@ in future it will be used to coordinate ownership of repos among workers,
 ```
 
 
-Worker design:
+## Worker design
 
-start
+### start
+
  1. open sqlite db
  2. create top-level nodes in zookeeper under /workers
  3. start watch on zk repositories node
@@ -117,11 +121,13 @@ start
     1. loop over projects defined in sqlite db
     2. for each watched remote start sync thread
 
-adding new project to sync:
+### adding new project to sync
+
  1. create entry in sqlite
  2. start new sync thread
 
-sync thread:
+### sync thread
+
  1. find repo dir and check consistency against sqlite db:
  2. if dir doesn't exist, clone it
  3. if sqlite commit id doesn't exist in repo clear it
@@ -149,7 +155,8 @@ sync thread:
     update repo_files indexed commit id as we go if change commit id is newer than indexed commit id
     crash recovery: it's monotonic. no special logic needed.
 
-sync thread states:
+### sync thread states
+
  1. started
  2. start_fail couldn't open sqlite db or find data dir? or zk?
  3. cloning
@@ -166,31 +173,54 @@ sync thread states:
  16. indexed_files
 
 
-sqlite db schema:
+## SQLite db schema
 
-repositories table:
+### repositories table
+
  1. id uuid string (hyphen formatted, 36 chars)
  2. repo uri (e.g. https://github.com/me/foo.git)
  3. indexed_datetime for information only
  4. sync state (see above)
  5. local filesystem path
+
 unique indexes on id and repo
 
-branches table:
+### branches table
+
  1. repo_id
  2. name
  3. indexed_commit_id
+
 unique index on (repo_id,name)
 
-commits work table:
+### commits work table
+
  1. id git oid of commit 20 char ascii
  2. repo_id uuid string of repo
  3. state enum indexed or not_indexed
+
 unique index on (repo_id, id)
 
-repo_files table:
+### repo_files table
+
  1. repo_id uuid string of repo
  2. path relative path in repo of file
  3. commit_id id of commit when last changed
  4. indexed_commit_id id of commit when last indexed
+ 
 unique index on (repo_id, path)
+
+## a note on paths, strings and unicode:
+
+the rust code uses Paths where appropriate.
+the sqlite db uses c strings.
+converting between the two is done in modules::types.rs
+
+there are no paths created from things that aren't already paths,
+or are otherwise known to be something safe like ascii e.g.
+a hash of the remote url is used instead of the url itself as
+the dir to clone the repo into, and the branch names aren't used
+in paths anywhere.
+
+hopefully that's enough to be reasonably cross platform and
+tolerant of non-utf8 inputs.
