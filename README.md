@@ -46,6 +46,7 @@ but does not need to outlive the mirrored git repositories themselves.
 
 if the worker machine is lost, it can be recovered by starting a new one and re-mirroring
 the git repositories named in zookeeper. this process is automatic.
+zookeeper also holds the indexed commit id of each branch as a backup, so no re-indexing is needed
 
 if zookeeper is lost, its configuration will need to be recreated, and the codelauf worker
 restarted.
@@ -62,7 +63,9 @@ zookeeper file structure:
     /{43223-21998392-3232-123294}
       - type: git
         url: https://github.com/...
-        branch: master
+        branches:
+	  - name: master
+	    indexed_commit_id: blah
         last_indexed: Monday
         wanted_indexed: Tuesday
     /{09238-24234233-3242-432981}
@@ -123,9 +126,11 @@ sync thread:
  2. if dir doesn't exist, clone it
  3. if sqlite commit id doesn't exist in repo clear it
  4. git fetch all to manually sync with remote
- 5. if local and remote branches have diverged, use revwalk to find all the commits back
-    to the merge base(s).
- 6. add all commits found to commits work table in sqlite
+ 5. use revwalk to find all the commits back to the merge base(s):
+    include in the revwalk all the repo's tracked branches in the branches table
+    for each tracked branch:
+      hide merge bases of (branch tip commit id, indexed commit id)
+ 6. add all commits found by revwalk to commits work table in sqlite
     crash recovery: ignore duplicate row errors
  7. scroll through commits work table and add each commit to elastic search
     mark row in work table as done
@@ -134,10 +139,12 @@ sync thread:
     remove from search index any files deleted or renamed by a commit
     add to repo_files table any files that are added or updated
     if they're already in there then update the change commit id if newer
-    no special logic needed for crash recovery here
- 8. when all rows done, save head commit id as indexed commit id in repos table
+    crash recovery: no special logic needed. elasticsearch will eventually converge
+ 8. when all rows done, save each branch tip commit id as indexed commit id in branches table
     and clear work table.
-    crash recovery: update and work table row deletion in same transaction
+    update each branch commit id in zookeeper
+    crash recovery: update branches table and delete work table rows in same transaction.
+    zookeeper branch commit id is eventually consistent.
  9. for each file in repo_files table, add to search index
     update repo_files indexed commit id as we go if change commit id is newer than indexed commit id
     crash recovery: it's monotonic. no special logic needed.
@@ -164,12 +171,16 @@ sqlite db schema:
 repositories table:
  1. id uuid string (hyphen formatted, 36 chars)
  2. repo uri (e.g. https://github.com/me/foo.git)
- 3. branch name
- 4. last indexed commit id (goes backwards during rewind, forwards during merge)
- 5. last indexed datetime for information only
- 6. sync state (see above)
- 7. local filesystem path
-unique indexes on id and (repo,branch)
+ 3. indexed_datetime for information only
+ 4. sync state (see above)
+ 5. local filesystem path
+unique indexes on id and repo
+
+branches table:
+ 1. repo_id
+ 2. name
+ 3. indexed_commit_id
+unique index on (repo_id,name)
 
 commits work table:
  1. id git oid of commit 20 char ascii
