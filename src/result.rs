@@ -18,6 +18,7 @@ pub enum RepoError {
     StringUnicodeError,
     GitError(git2::Error),
     InvalidState(String),
+    FromUtf8Error,
 }
 
 impl From<SqliteError> for RepoError {
@@ -37,5 +38,6 @@ impl From<git2::Error> for RepoError {
         RepoError::GitError(err)
     }
 }
+
 
     

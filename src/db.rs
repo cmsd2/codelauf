@@ -126,6 +126,17 @@ impl Db {
             &branch.indexed_commit_id]));
         Ok(())
     }
+
+    pub fn create_commit_unless_exists(&self, id: &str, repo_id: &str) -> RepoResult<()> {
+        let mut stmt = try!(self.conn.prepare("INSERT OR IGNORE INTO commits VALUES (?,?,?)").map_err(|e| RepoError::SqlError(e)));
+
+        try!(stmt.execute(&[
+            &id,
+            &repo_id,
+            &CommitState::NotIndexed.to_string()]));
+        
+        Ok(())
+    }
 }
 
 impl Drop for Db {

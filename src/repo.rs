@@ -335,7 +335,7 @@ impl Repo {
     }
 
     /// walks commits from current head to merge-base of self.commit if any
-    pub fn revwalk(&self) -> RepoResult<()> {
+    pub fn revwalk(&self, db: &db::Db) -> RepoResult<()> {
         info!("walking revision tree");
         
         let git_repo = try!(self.git_repo());
@@ -352,8 +352,18 @@ impl Repo {
 
         info!("commit history:");
         for oid in revwalk {
-            info!("{:?}", oid);
+            try!(self.add_commit(db, &oid));
         }
+        
+        Ok(())
+    }
+
+    pub fn add_commit(&self, db: &db::Db, oid: &git2::Oid) -> RepoResult<()> {
+        info!("adding commit {:?}", oid);
+
+        let commit_id = format!("{}", oid);
+        
+        try!(db.create_commit_unless_exists(&commit_id, &self.id));
         
         Ok(())
     }

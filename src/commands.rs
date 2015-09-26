@@ -1,8 +1,10 @@
-use super::config::Config;
-use super::db::Db;
-use super::result::*;
-use super::repo::*;
 use std::path::Path;
+
+use config::Config;
+use db::Db;
+use result::*;
+use repo::*;
+use index::*;
 
 fn open_db(config: &Config) -> RepoResult<Db> {
     let dbpath = Path::new(&config.data_dir).join("db.sqlite");
@@ -35,7 +37,7 @@ fn ensure_cloned(_config: &Config, db: &Db, repo: &mut Repo) -> RepoResult<()> {
     info!("ensuring cloned {:?}", repo);
     let _git_repo = try!(repo.clone_repo());
 
-    try!(repo.revwalk());
+    try!(repo.revwalk(db));
     
     repo.update_repo_in_db(db)
 }
@@ -47,12 +49,23 @@ fn ensure_fetched(config: &Config, db: &Db, repo: &mut Repo) -> RepoResult<()> {
         
         try!(repo.pull_repo());
 
-        try!(repo.revwalk());
+        try!(repo.revwalk(db));
         
         repo.update_repo_in_db(db)
     } else {        
         ensure_cloned(config, db, repo)
     }
+}
+
+fn ensure_indexed(config: &Config, db: &Db, repo: &mut Repo) -> RepoResult<()> {
+    info!("ensuring indexed {:?}", repo);
+    try!(ensure_fetched(&config, db, repo));
+
+    let index = Index::new_for_config(config);
+
+    try!(index.index_repo(repo));
+
+    Ok(())
 }
 
 /// open db
@@ -72,11 +85,24 @@ pub fn fetch_repo(config: &Config) -> RepoResult<()> {
     try!(repo.probe_fs());
     try!(repo.update_repo_in_db(&db));
 
-    ensure_fetched(&config, &db, &mut repo)
+    try!(ensure_fetched(&config, &db, &mut repo));
+
+    Ok(())
 }
 
-pub fn index_repo(_config: &Config) {
+pub fn index_repo(config: &Config) -> RepoResult<()> {
+    let db = try!(open_db(config));
+    
+    let mut repo = try!(Repo::new_for_config(&config));
+
+    try!(repo.probe_fs());
+    try!(repo.update_repo_in_db(&db));
+    
+    try!(ensure_indexed(&config, &db, &mut repo));
+
+    Ok(())
 }
 
-pub fn run_sync(_config: &Config) {
+pub fn run_sync(_config: &Config) -> RepoResult<()> {
+    Ok(())
 }

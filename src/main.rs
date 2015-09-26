@@ -23,15 +23,13 @@ fn run() -> RepoResult<()> {
             commands::init(&config)
         },
         Some("index") => {
-            commands::index_repo(&config);
-            Ok(())
+            commands::index_repo(&config)
         },
         Some("fetch") => {
             commands::fetch_repo(&config)
         },
         Some("sync") => {
-            commands::run_sync(&config);
-            Ok(())
+            commands::run_sync(&config)
         },
         _ => {
             println!("{}", args.usage());
