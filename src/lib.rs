@@ -12,6 +12,9 @@ extern crate time;
 extern crate uuid;
 extern crate sha1;
 extern crate chrono;
+extern crate rs_es;
+extern crate url;
+extern crate rustc_serialize;
 
 pub mod db;
 pub mod config;

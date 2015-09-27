@@ -155,6 +155,16 @@ impl Db {
         
         Ok(result)
     }
+
+    pub fn mark_commit_as_indexed(&self, repo_id: &str, commit_id: &str) -> RepoResult<()> {
+        let mut stmt = try!(self.conn.prepare("UPDATE commits SET \
+                                               state = 'Indexed' \
+                                               WHERE id=? AND repo_id=?").map_err(|e| RepoError::SqlError(e)));
+        
+        try!(stmt.execute(&[&commit_id, &repo_id]));
+        
+        Ok(())
+    }
 }
 
 impl Drop for Db {
