@@ -39,6 +39,38 @@ impl ToString for SyncState {
     }
 }
 
+pub struct RecursiveTreeIter<'a> {
+    entries: Vec<git2::TreeEntry<'a>>,
+    repo: &'a git2::Repository,
+}
+
+impl<'a> Iterator for RecursiveTreeIter<'a> {
+    type Item = git2::TreeEntry<'a>;
+    
+    fn next(&mut self) -> Option<git2::TreeEntry<'a> > {
+        if self.entries.is_empty() {
+            None
+        } else {
+            let entry = self.entries.remove(0);
+            
+            match entry.kind() {
+                Some(git2::ObjectType::Tree) => {
+                    let obj: git2::Object<'a> = entry.to_object(self.repo).unwrap();
+                    
+                    let tree: &git2::Tree<'a> = obj.as_tree().unwrap();
+                    
+                    for entry in tree.iter() {
+                        self.entries.push(entry);
+                    }
+                }
+                _ => {}
+            }
+            
+            Some(entry)
+        }
+    }
+}
+
 #[derive(Debug,Clone)]
 pub struct Branch {
     pub name: String,
@@ -358,6 +390,32 @@ impl Repo {
         Ok(())
     }
 
+    pub fn get_commit<'a>(&'a self, commit_id: &str) -> RepoResult<git2::Commit<'a> > {
+        info!("getting commit {:?}", commit_id);
+        let git_repo = try!(self.git_repo());
+
+        let oid = try!(git2::Oid::from_str(commit_id));
+        
+        let commit = try!(git_repo.find_commit(oid));
+
+        Ok(commit)
+    }
+
+    pub fn tree_iter<'tree,'repo:'tree>(&'repo self, tree: &'tree git2::Tree<'repo>) -> RecursiveTreeIter<'repo> {
+        let repo = self.git_repo().unwrap();
+        
+        let mut initial = vec![];
+        
+        for entry in tree.iter() {
+            initial.push(entry);
+        }
+        
+        RecursiveTreeIter {
+            entries: initial,
+            repo: repo,
+        }
+    }
+
     pub fn add_commit(&self, db: &db::Db, oid: &git2::Oid) -> RepoResult<()> {
         info!("adding commit {:?}", oid);
 
@@ -368,9 +426,9 @@ impl Repo {
         Ok(())
     }
 
-    pub fn git_repo(&self) -> RepoResult<Rc<git2::Repository>> {
+    pub fn git_repo<'a>(&'a self) -> RepoResult<&'a git2::Repository> {
         match self.git_repo.as_ref() {
-            Some(gr) => Ok(gr.clone()),
+            Some(gr) => Ok(gr),
             None => Err(RepoError::InvalidState("git repo not opened".to_string())),
         }
     }

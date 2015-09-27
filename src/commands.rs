@@ -63,7 +63,7 @@ fn ensure_indexed(config: &Config, db: &Db, repo: &mut Repo) -> RepoResult<()> {
 
     let index = Index::new_for_config(config);
 
-    try!(index.index_repo(repo));
+    try!(index.index_repo(db, repo));
 
     Ok(())
 }

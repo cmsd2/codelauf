@@ -137,6 +137,24 @@ impl Db {
         
         Ok(())
     }
+
+    pub fn find_commits_not_indexed(&self, repo_id: &str) -> RepoResult<Vec<String>> {
+        let mut stmt = try!(self.conn.prepare("SELECT * FROM commits WHERE state = 'NotIndexed' AND repo_id = ?").map_err(|e| RepoError::SqlError(e)));
+        
+        let rows = try!(stmt.query(&[&repo_id]));
+
+        let mut result = vec![];
+
+        for row_result in rows {
+            let row = try!(row_result);
+            
+            let commit_id: String = row.get(0);
+
+            result.push(commit_id);
+        }
+        
+        Ok(result)
+    }
 }
 
 impl Drop for Db {

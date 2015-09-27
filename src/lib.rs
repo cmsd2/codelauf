@@ -11,6 +11,7 @@ extern crate toml;
 extern crate time;
 extern crate uuid;
 extern crate sha1;
+extern crate chrono;
 
 pub mod db;
 pub mod config;
