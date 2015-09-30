@@ -1,6 +1,21 @@
 {
     "settings" : {
-        "number_of_shards" : 1
+        "number_of_shards" : 1,
+	"analysis" : {
+            "analyzer" : {
+                "text_ngram_analyzer" : {
+                    "tokenizer" : "text_ngram_tokenizer"
+                }
+            },
+            "tokenizer" : {
+                "text_ngram_tokenizer" : {
+                    "type" : "nGram",
+                    "min_gram" : "3",
+                    "max_gram" : "4",
+                    "token_chars": [ "letter", "digit" ]
+                }
+            }
+        }
     },
     "mappings" : {
         "commit" : {
@@ -46,7 +61,8 @@
 		    "type": "date"
 		},
 		"message": {
-		    "type": "string"
+		    "type": "string",
+		    "analyzer": "text_ngram_analyzer"
 		},
 		"files": {
 		    "properties": {
@@ -56,13 +72,15 @@
 			},
 			"path": {
 			    "type": "string",
-			    "index": "not_analyzed"
+			    "analyzer": "text_ngram_analyzer"
 			},
 			"text": {
-			    "type": "string"
+			    "type": "string",
+			    "analyzer": "text_ngram_analyzer"
 			},
 			"keywords": {
-			    "type": "string"
+			    "type": "string",
+			    "analyzer": "text_ngram_analyzer"
 			}
 		    }
 		}
@@ -73,7 +91,8 @@
 	    "_source": { "enabled": true },
 	    "properties": {
 		"path": {
-		    "type": "string"
+		    "type": "string",
+		    "analyzer": "text_ngram_analyzer"
 		},
 		"repo_id": {
 		    "type": "string",
@@ -87,10 +106,12 @@
 		    "type": "date"
 		},
 		"text": {
-		    "type": "string"
+		    "type": "string",
+		    "analyzer": "text_ngram_analyzer"
 		},
 		"keywords": {
-		    "type": "string"
+		    "type": "string",
+		    "analyzer": "text_ngram_analyzer"
 		}
 	    }
 	}

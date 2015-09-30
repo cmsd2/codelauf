@@ -39,19 +39,43 @@ impl ToString for SyncState {
     }
 }
 
+#[derive(Clone)]
+pub struct RepoTreeEntry {
+    pub entry: git2::TreeEntry<'static>,
+    pub path: PathBuf,
+}
+
+impl RepoTreeEntry {
+    pub fn new(entry: git2::TreeEntry<'static>, path: PathBuf) -> RepoTreeEntry {
+        RepoTreeEntry {
+            entry: entry,
+            path: path
+        }
+    }
+
+    pub fn from_ref(entry: &git2::TreeEntry, path: &Path) -> Option<RepoTreeEntry> {
+        let maybe_name = entry.name();
+        
+        maybe_name.map(|name| {
+            RepoTreeEntry::new(entry.to_owned(), path.join(name).to_owned())
+        })
+    }
+}
+
 pub struct RecursiveTreeIter<'a> {
-    entries: Vec<git2::TreeEntry<'a>>,
+    entries: Vec<RepoTreeEntry>,
     repo: &'a git2::Repository,
 }
 
 impl<'a> Iterator for RecursiveTreeIter<'a> {
-    type Item = git2::TreeEntry<'a>;
+    type Item = RepoTreeEntry;
     
-    fn next(&mut self) -> Option<git2::TreeEntry<'a> > {
+    fn next(&mut self) -> Option<RepoTreeEntry> {
         if self.entries.is_empty() {
             None
         } else {
-            let entry = self.entries.remove(0);
+            let repo_entry = self.entries.remove(0);
+            let entry = &repo_entry.entry;
             
             match entry.kind() {
                 Some(git2::ObjectType::Tree) => {
@@ -60,13 +84,17 @@ impl<'a> Iterator for RecursiveTreeIter<'a> {
                     let tree: &git2::Tree<'a> = obj.as_tree().unwrap();
                     
                     for entry in tree.iter() {
-                        self.entries.push(entry);
+                        let child_repo_entry = RepoTreeEntry::from_ref(&entry, &repo_entry.path);
+
+                        if child_repo_entry.is_some() {
+                            self.entries.push(child_repo_entry.unwrap());
+                        }
                     }
                 }
                 _ => {}
             }
             
-            Some(entry)
+            Some(repo_entry.clone())
         }
     }
 }
@@ -401,13 +429,45 @@ impl Repo {
         Ok(commit)
     }
 
-    pub fn tree_iter<'tree,'repo:'tree>(&'repo self, tree: &'tree git2::Tree<'repo>) -> RecursiveTreeIter<'repo> {
+    pub fn treewalk(&self, db: &db::Db, commit_id: &str) -> RepoResult<()> {
+        //let git_repo = try!(self.git_repo());
+
+        let commit = try!(self.get_commit(commit_id));
+
+        let tree = try!(commit.tree());
+        
+        let iter = self.tree_iter(&tree);
+
+        for repo_entry in iter {
+            let entry = repo_entry.entry;
+            
+            match entry.kind() {
+                Some(git2::ObjectType::Blob) => {
+                    //let obj: git2::Object = entry.to_object(git_repo).unwrap();
+
+                    //todo get contents of file from blob
+                    //let blob: &git2::Blob = obj.as_blob().unwrap();
+
+                    try!(db.upsert_file(&self.id, &repo_entry.path, Some(commit_id)));
+                },
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn tree_iter<'tree,'repo>(&'repo self, tree: &'tree git2::Tree<'tree>) -> RecursiveTreeIter<'repo> {
         let repo = self.git_repo().unwrap();
         
         let mut initial = vec![];
         
         for entry in tree.iter() {
-            initial.push(entry);
+            let repo_entry = RepoTreeEntry::from_ref(&entry, Path::new(""));
+
+            if repo_entry.is_some() {
+                initial.push(repo_entry.unwrap());
+            }
         }
         
         RecursiveTreeIter {
@@ -424,6 +484,18 @@ impl Repo {
         try!(db.create_commit_unless_exists(&commit_id, &self.id));
         
         Ok(())
+    }
+
+    pub fn head_commit_id(&self) -> RepoResult<String> {
+        let git_repo = try!(self.git_repo());
+
+        let head = try!(git_repo.head());
+
+        let oid = try!(head.target().ok_or(RepoError::HeadRefHasNoDirectTarget));
+        
+        let commit = try!(git_repo.find_commit(oid));
+
+        Ok(format!("{}", commit.id()))
     }
 
     pub fn git_repo<'a>(&'a self) -> RepoResult<&'a git2::Repository> {

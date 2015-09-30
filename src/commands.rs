@@ -61,6 +61,10 @@ fn ensure_indexed(config: &Config, db: &Db, repo: &mut Repo) -> RepoResult<()> {
     info!("ensuring indexed {:?}", repo);
     try!(ensure_fetched(&config, db, repo));
 
+    let head = try!(repo.head_commit_id());
+    
+    try!(repo.treewalk(db, &head));
+    
     let index = try!(Index::new_for_config(config));
 
     try!(index.index_repo(db, repo));

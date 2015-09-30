@@ -5,8 +5,11 @@ use db::*;
 use git2;
 use chrono::*;
 use rs_es;
-use url::Url;
+use sha1::Sha1;
+use std::fs::File;
+use std::path::{Path,PathBuf};
 use std::cell::RefCell;
+use std::io::Read;
 
 #[derive(Debug,Clone,RustcEncodable,RustcDecodable)]
 pub struct CommitId {
@@ -67,6 +70,36 @@ impl Commit {
     }
 }
 
+#[derive(Debug,Clone,RustcEncodable,RustcDecodable)]
+pub struct IndexedFile {
+    pub repo_id: String,
+    pub path: PathBuf,
+    pub text: Option<String>,
+    pub keywords: Option<String>,
+    pub changed_commit_id: Option<String>,
+    pub changed_date: Option<String>,
+}
+
+impl IndexedFile {
+    pub fn new(repo_id: String, path: PathBuf) -> IndexedFile {
+        IndexedFile {
+            repo_id: repo_id,
+            path: path,
+            text: None,
+            keywords: None,
+            changed_commit_id: None,
+            changed_date: None,
+        }
+    }
+
+    pub fn id(&self) -> String {
+        let mut h = Sha1::new();
+        h.update(self.repo_id.as_bytes());
+        h.update(path_to_bytes(&self.path).unwrap());
+        h.hexdigest()
+    }
+}
+
 pub struct Index {
     pub es_client: RefCell<rs_es::Client>,
 }
@@ -80,13 +113,63 @@ impl Index {
         let es_host = try!(es_url_parts.next().ok_or(RepoError::NoElasticSearch));
         let es_port = try!(es_url_parts.next().map(|s| s.parse::<u32>()).unwrap_or(Ok(9200)));
 
+        info!("es host: {} port: {}", es_host, es_port);
+
         Ok(Index {
             es_client: RefCell::new(rs_es::Client::new(es_host, es_port)),
         })
     }
+
+    pub fn index_tree(&self, db: &Db, repo: &Repo) -> RepoResult<()> {
+        let files = try!(db.find_files_not_indexed(&repo.id));
+
+        for file in files {
+            match self.index_file(db, repo, &file.path, &file.changed_commit_id) {
+                Err(err) => {
+                    info!("error indexing file {:?}: {:?}", file.path, err);
+                },
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn index_file(&self, db: &Db, repo: &Repo, path: &Path, commit_id: &str) -> RepoResult<()> {
+        info!("indexing file {:?}", path);
+
+        let mut f = try!(File::open(path));
+        let mut s = String::new();
+        try!(f.read_to_string(&mut s));
+        //todo analyse file instead of sending verbatim
+
+        let mut indexed_file = IndexedFile::new(repo.id.clone(), path.to_owned());
+        indexed_file.text = Some(s);
+        indexed_file.changed_commit_id = Some(commit_id.to_owned());
+        let file_id = indexed_file.id();
+        
+        let mut es_client = self.es_client.borrow_mut();
+        let mut op = es_client.index("codelauf", "file");
+        
+        try!(op
+             .with_id(&file_id)
+             .with_doc(&indexed_file)
+             .send());
+
+        try!(db.mark_file_as_indexed(&repo.id, path, commit_id));
+
+        Ok(())
+    }
     
     pub fn index_repo(&self, db: &Db, repo: &Repo) -> RepoResult<()> {
+        try!(self.index_commits(db, repo));
 
+        try!(self.index_tree(db, repo));
+
+        Ok(())
+    }
+    
+    pub fn index_commits(&self, db: &Db, repo: &Repo) -> RepoResult<()> {
         let commits = try!(db.find_commits_not_indexed(&repo.id));
 
         for commit in commits {
@@ -99,8 +182,6 @@ impl Index {
     }
 
     pub fn index_commit(&self, db: &Db, repo: &Repo, commit_id: &str) -> RepoResult<()> {
-        let git_repo = try!(repo.git_repo());
-        
         let commit = try!(repo.get_commit(commit_id));
 
         let indexed_commit = try!(Commit::new_for_git_commit(&repo.id, &commit));

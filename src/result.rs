@@ -1,4 +1,5 @@
 use std::num;
+use std::io;
 use std::result::Result;
 use rusqlite::SqliteError;
 use std::convert::From;
@@ -26,6 +27,9 @@ pub enum RepoError {
     UrlParseError(url::ParseError),
     ElasticSearchError(rs_es::error::EsError),
     ParseIntError(num::ParseIntError),
+    NoTreeEntryName,
+    HeadRefHasNoDirectTarget,
+    IoError(io::Error),
 }
 
 impl From<SqliteError> for RepoError {
@@ -61,6 +65,12 @@ impl From<rs_es::error::EsError> for RepoError {
 impl From<num::ParseIntError> for RepoError {
     fn from(err: num::ParseIntError) -> RepoError {
         RepoError::ParseIntError(err)
+    }
+}
+
+impl From<io::Error> for RepoError {
+    fn from(err: io::Error) -> RepoError {
+        RepoError::IoError(err)
     }
 }
 

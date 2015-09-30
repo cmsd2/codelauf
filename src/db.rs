@@ -69,7 +69,7 @@ impl Db {
     }
 
     pub fn update_repo(&self, repo: &Repository) -> RepoResult<()> {
-        let path = try!(path_buf_to_bytes_vec(&repo.path));
+        let path = try!(path_to_bytes_vec(&repo.path));
         
         let mut stmt = try!(self.conn.prepare("UPDATE repositories SET \
                                                path=?, sync_state=?, \
@@ -86,7 +86,7 @@ impl Db {
     }
 
     pub fn insert_repo(&self, repo: &Repository) -> RepoResult<()> {
-        let path = try!(path_buf_to_bytes_vec(&repo.path));
+        let path = try!(path_to_bytes_vec(&repo.path));
         
         let mut stmt = try!(self.conn.prepare("INSERT INTO repositories VALUES (?,?,?,?,?,?,?)").map_err(|e| RepoError::SqlError(e)));
         try!(stmt.execute(&[
@@ -163,6 +163,66 @@ impl Db {
         
         try!(stmt.execute(&[&commit_id, &repo_id]));
         
+        Ok(())
+    }
+
+    /// create row in files table, or update changed_commit_id if it exists.
+    /// indexed_commit_id will be set to null.
+    pub fn upsert_file(&self, repo_id: &str, path: &Path, changed_commit_id: Option<&str>) -> RepoResult<()> {
+        let mut stmt = try!(self.conn.prepare("INSERT OR REPLACE INTO files \
+                                               (repo_id, path, changed_commit_id) \
+                                               VALUES (?,?,?)"));
+
+        let path_bytes = try!(path_to_bytes(path));
+        
+        try!(stmt.execute(&[&repo_id, &path_bytes, &changed_commit_id]));
+
+        Ok(())
+    }
+
+    pub fn find_files_not_indexed(&self, repo_id: &str) -> RepoResult<Vec<RepoFile>> {
+        let mut stmt = try!(self.conn.prepare("SELECT * FROM files WHERE ((indexed_commit_id is null) or (indexed_commit_id != changed_commit_id)) AND repo_id = ?").map_err(|e| RepoError::SqlError(e)));
+        
+        let rows = try!(stmt.query(&[&repo_id]));
+
+        let mut result = vec![];
+
+        for row_result in rows {
+            let row = try!(row_result);
+
+            let file = try!(RepoFile::new_from_sql_row(&row));
+            
+            result.push(file);
+        }
+        
+        Ok(result)
+    }
+
+    /// find file by repo_id and path, and set the indexed_commit_id column
+    pub fn mark_file_as_indexed(&self, repo_id: &str, path: &Path, indexed_commit_id: &str) -> RepoResult<()> {
+        let mut stmt = try!(self.conn.prepare("UPDATE files SET \
+                                               indexed_commit_id = ? \
+                                               WHERE path=? AND repo_id=?").map_err(|e| RepoError::SqlError(e)));
+
+        let path_bytes = try!(path_to_bytes(path));
+        
+        try!(stmt.execute(&[&indexed_commit_id, &path_bytes, &repo_id]));
+        
+        Ok(())        
+    }
+
+    /// in a single transaction, delete all rows in the commits and files work tables, for the given repo
+    pub fn clear_commits_and_files(&self, repo_id: &str) -> RepoResult<()> {
+        let tx = try!(self.conn.transaction());
+        
+        let mut del_files_stmt = try!(self.conn.prepare("DELETE FROM files WHERE repo_id = ?"));
+        try!(del_files_stmt.execute(&[&repo_id]));
+        
+        let mut del_commits_stmt = try!(self.conn.prepare("DELETE FROM commits WHERE repo_id = ?"));
+        try!(del_commits_stmt.execute(&[&repo_id]));
+
+        try!(tx.commit());
+
         Ok(())
     }
 }
