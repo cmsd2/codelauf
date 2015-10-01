@@ -25,12 +25,8 @@ version = "0.2"
 features = ["rustc-serialize"]
 
 [dependencies.git2]
-git = "file:/Users/chris/Development/cmsd2/git2-rs"
-rev = "tree_entry_to_owned"
-#git = "https://github.com/cmsd2/git2-rs"
-#rev = "tree_iter_lifetime"
-#git = "https://github.com/alexcrichton/git2-rs"
-#rev = "ed0573ae4472b3d965b53398e158160442e21013"
+git = "https://github.com/alexcrichton/git2-rs"
+rev = "master"
 
 [features]
 unstable = []
