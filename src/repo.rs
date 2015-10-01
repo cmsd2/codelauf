@@ -428,10 +428,12 @@ impl Repo {
         Ok(commit)
     }
 
-    pub fn treediff(&self, db: &db::Db, indexed_commit_id: &str, branch_commit_id: &str) -> RepoResult<()> {
+    //todo what's this for?
+    pub fn treediff(&self, _db: &db::Db, _indexed_commit_id: &str, _branch_commit_id: &str) -> RepoResult<()> {
         Ok(())
     }
 
+    //todo what's this for?
     pub fn treewalks(&self, db: &db::Db) -> RepoResult<()> {
         for branch in self.branches.iter() {
             let branch_commit_id = try!(self.branch_commit_id(&branch.name));

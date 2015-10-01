@@ -164,7 +164,7 @@ impl Index {
     }
 
     pub fn index_blob(&self, db: &Db, repo: &Repo, path: &Path, commit_id: &str, blob: &git2::Blob) -> RepoResult<()> {
-        if(blob.is_binary()) {
+        if blob.is_binary() {
             info!("not indexing binary file {:?}", path);
         } else {
             let blob_data = blob.content();
@@ -242,7 +242,7 @@ impl Index {
 
             try!(self.index_diff(db, repo, &branch_commit_id_str, &diff));
 
-//            try!(db.mark_branch_as_indexed(&repo.id, &branch.name, &branch_commit_id_str));
+            try!(db.mark_branch_as_indexed(&repo.id, &branch.name, &branch_commit_id_str));
         }
 
         Ok(())
