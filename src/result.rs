@@ -30,6 +30,7 @@ pub enum RepoError {
     NoTreeEntryName,
     HeadRefHasNoDirectTarget,
     IoError(io::Error),
+    BranchNotFound,
 }
 
 impl From<SqliteError> for RepoError {

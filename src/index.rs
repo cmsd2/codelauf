@@ -10,6 +10,8 @@ use std::fs::File;
 use std::path::{Path,PathBuf};
 use std::cell::RefCell;
 use std::io::Read;
+use encoding::{Encoding, DecoderTrap};
+use encoding::all::UTF_8;
 
 #[derive(Debug,Clone,RustcEncodable,RustcDecodable)]
 pub struct CommitId {
@@ -160,12 +162,109 @@ impl Index {
 
         Ok(())
     }
+
+    pub fn index_blob(&self, db: &Db, repo: &Repo, path: &Path, commit_id: &str, blob: &git2::Blob) -> RepoResult<()> {
+        if(blob.is_binary()) {
+            info!("not indexing binary file {:?}", path);
+        } else {
+            let blob_data = blob.content();
+
+            let maybe_blob_str = UTF_8.decode(blob_data, DecoderTrap::Replace);
+
+            if maybe_blob_str.is_err() {
+                info!("error decoding blob data: {:?}", maybe_blob_str);
+            } else {
+                let blob_str = maybe_blob_str.unwrap();
+                
+                try!(self.index_blob_str(db, repo, path, commit_id, &blob_str));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn index_blob_str(&self, db: &Db, repo: &Repo, path: &Path, commit_id: &str, blob: &str) -> RepoResult<()> {
+        let mut indexed_file = IndexedFile::new(repo.id.clone(), path.to_owned());
+        indexed_file.text = Some(blob.to_owned());
+        indexed_file.changed_commit_id = Some(commit_id.to_owned());
+        let file_id = indexed_file.id();
+        
+        let mut es_client = self.es_client.borrow_mut();
+        let mut op = es_client.index("codelauf", "file");
+        
+        try!(op
+             .with_id(&file_id)
+             .with_doc(&indexed_file)
+             .send());
+
+        try!(db.mark_file_as_indexed(&repo.id, path, commit_id));
+
+        Ok(())
+    }
     
     pub fn index_repo(&self, db: &Db, repo: &Repo) -> RepoResult<()> {
         try!(self.index_commits(db, repo));
 
-        try!(self.index_tree(db, repo));
+        try!(self.index_branches(db, repo));
 
+        Ok(())
+    }
+
+    pub fn index_branches(&self, db: &Db, repo: &Repo) -> RepoResult<()> {
+        let git_repo = try!(repo.git_repo());
+        
+        for branch in repo.branches.iter() {
+            let maybe_repo_branch = try!(db.find_branch(&repo.id, &branch.name));
+
+            let repo_branch = try!(maybe_repo_branch.ok_or(RepoError::BranchNotFound));
+
+            let old_tree = match repo_branch.indexed_commit_id {
+                Some(commit) => {
+                    let commit = try!(repo.get_commit(&commit));
+                    let tree = try!(commit.tree());
+                    Some(tree)
+                },
+                None => None
+            };
+
+            let branch_commit_id = try!(repo.branch_commit_id(&branch.name));
+            let branch_commit_id_str = format!("{}", branch_commit_id);
+            
+            let new_tree_commit = try!(repo.get_commit(&branch_commit_id_str));
+            let new_tree = try!(new_tree_commit.tree());
+
+            let mut diff_opts = git2::DiffOptions::new();
+            diff_opts.ignore_whitespace(true)
+                .ignore_filemode(true)
+                ;
+
+            let diff = try!(git2::Diff::tree_to_tree(git_repo, old_tree.as_ref(), Some(&new_tree), Some(&mut diff_opts)));
+
+            try!(self.index_diff(db, repo, &branch_commit_id_str, &diff));
+
+//            try!(db.mark_branch_as_indexed(&repo.id, &branch.name, &branch_commit_id_str));
+        }
+
+        Ok(())
+    }
+
+    pub fn index_diff(&self, db: &Db, repo: &Repo, commit_id: &str, diff: &git2::Diff) -> RepoResult<()> {
+        let git_repo = try!(repo.git_repo());
+        
+        for delta in diff.deltas() {
+            let old_file = delta.old_file();
+            let new_file = delta.new_file();
+            
+            info!("delta: {:?} {:?} {:?} {:?} {:?}", delta.status(), old_file.id(), old_file.path(), new_file.id(), new_file.path());
+
+            let path = new_file.path();
+            
+            if !new_file.id().is_zero() && path.is_some() {
+                let blob = try!(git_repo.find_blob(new_file.id()));
+                try!(self.index_blob(db, repo, path.unwrap(), commit_id, &blob));
+            }
+        }
+        
         Ok(())
     }
     

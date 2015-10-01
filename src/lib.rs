@@ -15,6 +15,7 @@ extern crate chrono;
 extern crate rs_es;
 extern crate url;
 extern crate rustc_serialize;
+extern crate encoding;
 
 pub mod db;
 pub mod config;

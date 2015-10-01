@@ -109,11 +109,11 @@ impl Db {
         RepoBranch::new_from_sql_row(&row0).map(|r| Some(r))
     }
 
-    pub fn update_branch(&self, branch: &RepoBranch) -> RepoResult<()> {
+    pub fn mark_branch_as_indexed(&self, repo_id: &str, branch: &str, commit_id: &str) -> RepoResult<()> {
         let mut stmt = try!(self.conn.prepare("UPDATE branches SET \
                                                indexed_commit_id=? \
-                                               WHERE id=?").map_err(|e| RepoError::SqlError(e)));
-        try!(stmt.execute(&[&branch.indexed_commit_id]));
+                                               WHERE repo_id=? AND name=?").map_err(|e| RepoError::SqlError(e)));
+        try!(stmt.execute(&[&repo_id, &branch, &commit_id]));
         
         Ok(())
     }
@@ -168,14 +168,14 @@ impl Db {
 
     /// create row in files table, or update changed_commit_id if it exists.
     /// indexed_commit_id will be set to null.
-    pub fn upsert_file(&self, repo_id: &str, path: &Path, changed_commit_id: Option<&str>) -> RepoResult<()> {
+    pub fn upsert_file(&self, repo_id: &str, branch: &str, path: &Path, changed_commit_id: Option<&str>) -> RepoResult<()> {
         let mut stmt = try!(self.conn.prepare("INSERT OR REPLACE INTO files \
-                                               (repo_id, path, changed_commit_id) \
-                                               VALUES (?,?,?)"));
+                                               (repo_id, branch, path, changed_commit_id) \
+                                               VALUES (?,?,?,?)"));
 
         let path_bytes = try!(path_to_bytes(path));
         
-        try!(stmt.execute(&[&repo_id, &path_bytes, &changed_commit_id]));
+        try!(stmt.execute(&[&repo_id, &branch, &path_bytes, &changed_commit_id]));
 
         Ok(())
     }
@@ -212,16 +212,9 @@ impl Db {
     }
 
     /// in a single transaction, delete all rows in the commits and files work tables, for the given repo
-    pub fn clear_commits_and_files(&self, repo_id: &str) -> RepoResult<()> {
-        let tx = try!(self.conn.transaction());
-        
-        let mut del_files_stmt = try!(self.conn.prepare("DELETE FROM files WHERE repo_id = ?"));
-        try!(del_files_stmt.execute(&[&repo_id]));
-        
+    pub fn clear_commits(&self, repo_id: &str) -> RepoResult<()> {
         let mut del_commits_stmt = try!(self.conn.prepare("DELETE FROM commits WHERE repo_id = ?"));
         try!(del_commits_stmt.execute(&[&repo_id]));
-
-        try!(tx.commit());
 
         Ok(())
     }

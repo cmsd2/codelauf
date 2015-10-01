@@ -375,10 +375,9 @@ impl Repo {
     }
 
     pub fn revwalk_add_branch(&self, git_repo: &git2::Repository, revwalk: &mut git2::Revwalk, branch_name: &str, indexed_commit: &Option<String>) -> RepoResult<()> {
-        let branch_fullname = try!(self.find_branch(git_repo, branch_name));
-        
-        let branch_commit = try!(git_repo.refname_to_id(&branch_fullname));
 
+        let branch_commit = try!(self.branch_commit_id(branch_name));
+        
         if indexed_commit.is_some() {
             let indexed_commit_id = try!(git_repo.revparse_single(indexed_commit.as_ref().unwrap())).id();
             
@@ -429,7 +428,33 @@ impl Repo {
         Ok(commit)
     }
 
-    pub fn treewalk(&self, db: &db::Db, commit_id: &str) -> RepoResult<()> {
+    pub fn treediff(&self, db: &db::Db, indexed_commit_id: &str, branch_commit_id: &str) -> RepoResult<()> {
+        Ok(())
+    }
+
+    pub fn treewalks(&self, db: &db::Db) -> RepoResult<()> {
+        for branch in self.branches.iter() {
+            let branch_commit_id = try!(self.branch_commit_id(&branch.name));
+            let branch_commit_id_str = format!("{}", branch_commit_id);
+            
+            // get commit id for last time we indexed the repo
+            let repo_branch = try!(db.find_branch(&self.id, &branch.name)).unwrap();
+            let indexed_commit_id = repo_branch.indexed_commit_id;
+            
+            if indexed_commit_id.is_some() {
+                // tree-to-tree diff it and head, adding changed files to table:
+
+                try!(self.treediff(db, indexed_commit_id.as_ref().unwrap(), &branch_commit_id_str));
+            } else {
+                // add all files to files table
+                try!(self.treewalk(db, &repo_branch.name, &branch_commit_id_str));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn treewalk(&self, db: &db::Db, branch: &str, commit_id: &str) -> RepoResult<()> {
         //let git_repo = try!(self.git_repo());
 
         let commit = try!(self.get_commit(commit_id));
@@ -448,7 +473,7 @@ impl Repo {
                     //todo get contents of file from blob
                     //let blob: &git2::Blob = obj.as_blob().unwrap();
 
-                    try!(db.upsert_file(&self.id, &repo_entry.path, Some(commit_id)));
+                    try!(db.upsert_file(&self.id, branch, &repo_entry.path, Some(commit_id)));
                 },
                 _ => {}
             }
@@ -496,6 +521,16 @@ impl Repo {
         let commit = try!(git_repo.find_commit(oid));
 
         Ok(format!("{}", commit.id()))
+    }
+
+    pub fn branch_commit_id(&self, branch: &str) -> RepoResult<git2::Oid> {
+        let git_repo = try!(self.git_repo());
+
+        let branch_fullname = try!(self.find_branch(git_repo, branch));
+        
+        let id = try!(git_repo.refname_to_id(&branch_fullname));
+
+        return Ok(id);
     }
 
     pub fn git_repo<'a>(&'a self) -> RepoResult<&'a git2::Repository> {
